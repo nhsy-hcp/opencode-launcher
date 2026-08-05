@@ -54,7 +54,7 @@ PROVIDERS = {
     "ollama": False,
     "nvidia": False,
     "openrouter": False,
-    "vllm": True,
+    "vllm": False,
     "ica": True,
 }
 ```
