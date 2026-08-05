@@ -59,7 +59,7 @@ PROVIDERS = {
     "ollama": False,  # Local Ollama   —  requires OLLAMA_HOST or default localhost:11434
     "nvidia": False,  # NVIDIA NIM     —  requires NVIDIA_API_KEY env var
     "openrouter": False,  # OpenRouter     —  requires OPENROUTER_API_KEY env var
-    "vllm": True,  # Remote vLLM    —  requires VLLM_URL env var or terraform directory
+    "vllm": False,  # Remote vLLM    —  requires VLLM_URL env var or terraform directory
     "ica": True,  # ICA            —  requires ICA_API_KEY env var
 }
 
