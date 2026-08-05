@@ -1085,21 +1085,16 @@ def main() -> None:
 
         provider = prov
         if provider == "litellm":
-            show_litellm_table(litellm_models)
             model_id = pick_litellm_model(litellm_models)
         elif provider == "ollama":
-            show_ollama_table(ollama_models)
             model_id = pick_ollama_model(ollama_models)
         elif provider == "nvidia":
-            show_nvidia_table(nvidia_models)
             model_id = pick_nvidia_model(nvidia_models)
         elif provider == "vllm":
             model_id = "local-model"
         elif provider == "ica":
-            show_ica_table(ica_models)
             model_id = _pick(ica_models, "Select ICA model", lambda m: f"{m['id']}  [{m['owned_by']}]")
         else:
-            show_openrouter_table(openrouter_models)
             model_id = pick_openrouter_model(openrouter_models)
 
         if model_id == "__back__":
