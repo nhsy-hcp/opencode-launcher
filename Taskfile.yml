@@ -23,6 +23,11 @@ tasks:
       - act --validate
       - act -j ci
 
+  test:ica:
+    desc: Smoke-test the live ICA endpoint (requires ICA_API_KEY)
+    cmds:
+      - ./scripts/test-ica.sh
+
   clean:
     desc: Remove cache, coverage, and temp artefacts
     cmds:

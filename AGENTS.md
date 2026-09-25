@@ -22,7 +22,8 @@ Developer and AI-agent reference for this project.
 task lint          # ruff check + ruff format --check
 task test          # pytest (no coverage)
 task test:coverage # pytest with coverage — fails if < 80%
-task test:ci       # lint + test:coverage (mirrors CI)
+task test:ci       # run CI workflow locally via act (requires act + Docker)
+task test:ica      # live ICA smoke test: /models + /chat/completions (requires ICA_API_KEY)
 task clean         # remove .pytest_cache, .coverage, .ruff_cache, .tmp
 ```
 
@@ -63,6 +64,8 @@ See `README.md` for the full table. Never hardcode secrets — use `.env` locall
 
 ```
 opencode-launcher.py   # main script
+scripts/
+  test-ica.sh          # live ICA endpoint smoke test
 tests/
   conftest.py          # session-scoped launcher fixture + tmp_launcher
   test_opencode_launcher.py

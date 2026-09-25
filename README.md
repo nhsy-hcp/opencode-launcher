@@ -77,6 +77,9 @@ task lint
 
 # full CI pipeline
 task test:ci
+
+# smoke-test live ICA endpoint (requires ICA_API_KEY; optional ICA_TEST_MODEL)
+task test:ica
 ```
 
 ## Cache

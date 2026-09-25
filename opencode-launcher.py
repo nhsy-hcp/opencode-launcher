@@ -79,7 +79,7 @@ NVIDIA_API_BASE = "https://integrate.api.nvidia.com/v1"
 NVIDIA_MODELS_URL = f"{NVIDIA_API_BASE}/models"
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 OPENROUTER_MODELS_URL = f"{OPENROUTER_API_BASE}/models"
-ICA_API_BASE = "https://api.nextgen-beta.ica.ibm.com/ica/v1"
+ICA_API_BASE = "https://api.servicesessentials.ibm.com/v1"
 ICA_MODELS_URL = f"{ICA_API_BASE}/models"
 
 OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
