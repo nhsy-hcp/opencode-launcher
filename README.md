@@ -15,20 +15,22 @@ Fetches available models from enabled providers in parallel, lets you browse/fil
 ## Usage
 
 ```bash
-uv run opencode-launcher.py                          # interactive picker
-uv run opencode-launcher.py --model litellm/gpt-4o  # skip picker, launch directly
-uv run opencode-launcher.py --dry-run                # print command, don't execute
-uv run opencode-launcher.py --no-cache               # bypass cache, fetch fresh models
-uv run opencode-launcher.py --clear-history          # wipe history & cache, then exit
-uv run opencode-launcher.py --clear-cache            # wipe model cache, then exit
-uv run opencode-launcher.py --litellm-url URL        # override LiteLLM base URL
-uv run opencode-launcher.py --timeout 30             # request timeout in seconds
+./opencode-launcher.py                               # interactive picker
+./opencode-launcher.py --model litellm/gpt-4o       # skip picker, launch directly
+./opencode-launcher.py --dry-run                     # print command, don't execute
+./opencode-launcher.py --no-cache                    # bypass cache, fetch fresh models
+./opencode-launcher.py --clear-history               # wipe history & cache, then exit
+./opencode-launcher.py --clear-cache                 # wipe model cache, then exit
+./opencode-launcher.py --litellm-url URL             # override LiteLLM base URL
+./opencode-launcher.py --timeout 30                  # request timeout in seconds
 ```
+
+The script is executable via its `uv` shebang; `uv run opencode-launcher.py ...` works equivalently.
 
 Extra arguments after `--` are forwarded to `opencode`:
 
 ```bash
-uv run opencode-launcher.py -- --workspace /my/project
+./opencode-launcher.py -- --workspace /my/project
 ```
 
 ## Environment Variables

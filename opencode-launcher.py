@@ -13,13 +13,13 @@ opencode-launcher.py
 Interactive TUI to pick a model and launch opencode.
 
 Usage:
-  uv run opencode-launcher.py                        # default: LiteLLM proxy
-  uv run opencode-launcher.py --litellm-url URL      # override LiteLLM URL
-  uv run opencode-launcher.py --model litellm/my-model   # skip picker, launch directly
-  uv run opencode-launcher.py --dry-run              # print command, don't execute
-  uv run opencode-launcher.py --no-cache             # bypass cache, fetch fresh models
-  uv run opencode-launcher.py --clear-history        # wipe history/cache and exit
-  uv run opencode-launcher.py --clear-cache         # wipe model cache and exit
+  ./opencode-launcher.py                             # default: LiteLLM proxy
+  ./opencode-launcher.py --litellm-url URL           # override LiteLLM URL
+  ./opencode-launcher.py --model litellm/my-model        # skip picker, launch directly
+  ./opencode-launcher.py --dry-run                   # print command, don't execute
+  ./opencode-launcher.py --no-cache                  # bypass cache, fetch fresh models
+  ./opencode-launcher.py --clear-history             # wipe history/cache and exit
+  ./opencode-launcher.py --clear-cache              # wipe model cache and exit
 
 Environment variables:
   LITELLM_URL          LiteLLM proxy base URL (overrides default below)
