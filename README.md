@@ -4,13 +4,13 @@
 
 Interactive TUI to pick a model and launch [opencode](https://opencode.ai).
 
-Fetches available models from enabled providers in parallel, lets you browse/filter them, writes the chosen model into `~/.config/opencode/opencode.json`, and exec's `opencode --model <provider>/<model>`.
+Fetches available models from enabled providers in parallel, lets you browse/filter them, writes the chosen provider and default `model` into `~/.config/opencode/opencode.json` (native opencode 2.0 `providers` format), and launches `opencode`.
 
 ## Prerequisites
 
 - Python ≥ 3.11
 - [`uv`](https://docs.astral.sh/uv/)
-- [`opencode`](https://opencode.ai/docs/) in `$PATH`
+- [`opencode`](https://opencode.ai/v2/docs/) ≥ 2.0 in `$PATH`
 
 ## Usage
 
@@ -30,7 +30,7 @@ The script is executable via its `uv` shebang; `uv run opencode-launcher.py ...`
 Extra arguments after `--` are forwarded to `opencode`:
 
 ```bash
-./opencode-launcher.py -- --workspace /my/project
+./opencode-launcher.py -- --continue
 ```
 
 ## Environment Variables
@@ -43,8 +43,12 @@ Extra arguments after `--` are forwarded to `opencode`:
 | `VLLM_URL` | `http://localhost:8000` | vLLM base URL |
 | `NVIDIA_API_KEY` | — | Required when NVIDIA provider is enabled |
 | `OPENROUTER_API_KEY` | — | Required when OpenRouter provider is enabled |
-| `ICA_API_KEY` | — | Required when ICA provider is enabled |
+| `ICA_OPENCODE_API_KEY` | — | Required when ICA provider is enabled |
 | `REQUEST_TIMEOUT` | `10` | HTTP request timeout (seconds) |
+
+API keys are never written to `opencode.json`. The launcher writes `{env:VAR}` references (`ICA_OPENCODE_API_KEY`, `OPENROUTER_API_KEY`, `LITELLM_MASTER_KEY`), which opencode resolves at runtime, so the variables must be exported in the environment of the opencode background service. If the service was started without them, run `opencode service restart` from a shell that has them set.
+
+The selected model becomes the opencode default (`model` in `opencode.json`). Launcher-managed entries in a legacy v1 `provider` block are migrated to `providers`; other entries are left untouched.
 
 ## Providers
 
@@ -80,7 +84,7 @@ task lint
 # full CI pipeline
 task test:ci
 
-# smoke-test live ICA endpoint (requires ICA_API_KEY; optional ICA_TEST_MODEL)
+# smoke-test live ICA endpoint (requires ICA_OPENCODE_API_KEY; optional ICA_TEST_MODEL)
 task test:ica
 ```
 

@@ -24,7 +24,7 @@ tasks:
       - act -j ci
 
   test:ica:
-    desc: Smoke-test the live ICA endpoint (requires ICA_API_KEY)
+    desc: Smoke-test the live ICA endpoint (requires ICA_OPENCODE_API_KEY)
     cmds:
       - ./scripts/test-ica.sh
 

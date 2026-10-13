@@ -5,14 +5,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="${ROOT}/.tmp"
 mkdir -p "${TMP}"
 
-if [[ -z "${ICA_API_KEY:-}" ]]; then
-  echo "ERROR: ICA_API_KEY not set" >&2
+if [[ -z "${ICA_OPENCODE_API_KEY:-}" ]]; then
+  echo "ERROR: ICA_OPENCODE_API_KEY not set" >&2
   exit 1
 fi
 
 BASE="${ICA_API_BASE:-$(sed -n 's/^ICA_API_BASE = "\(.*\)"$/\1/p' "${ROOT}/opencode-launcher.py")}"
 TIMEOUT="${REQUEST_TIMEOUT:-10}"
-AUTH="Authorization: Bearer ${ICA_API_KEY}"
+AUTH="Authorization: Bearer ${ICA_OPENCODE_API_KEY}"
 
 echo "Base URL: ${BASE}"
 

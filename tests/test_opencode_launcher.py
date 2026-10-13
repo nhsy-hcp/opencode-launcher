@@ -436,48 +436,91 @@ class TestOcConfigHelpers:
         launcher._write_oc_config({"foo": "bar"})
         assert launcher._read_oc_config() == {"foo": "bar"}
 
-    def test_ensure_litellm_sets_baseurl(self, launcher, tmp_path, monkeypatch):
-        p = tmp_path / "opencode.json"
-        monkeypatch.setattr(launcher, "OPENCODE_CONFIG_PATH", p)
-        launcher._ensure_oc_litellm("gpt-4o", "https://litellm.example.com", "mykey")
-        cfg = json.loads(p.read_text())
-        assert cfg["provider"]["litellm"]["options"]["baseURL"] == "https://litellm.example.com/v1"
-        assert cfg["provider"]["litellm"]["options"]["apiKey"] == "mykey"
-        assert "gpt-4o" in cfg["provider"]["litellm"]["models"]
+    def test_ensure_provider_writes_v2_shape(self, launcher):
+        cfg = {}
+        launcher._ensure_oc_provider(cfg, "ica", "claude-sonnet-5", "ICA", launcher.ICA_API_BASE, "{env:ICA_OPENCODE_API_KEY}")
+        prov = cfg["providers"]["ica"]
+        assert prov["name"] == "ICA"
+        assert prov["package"] == launcher.OPENCODE_PACKAGE
+        assert prov["settings"] == {"baseURL": "https://api.servicesessentials.ibm.com/v1", "apiKey": "{env:ICA_OPENCODE_API_KEY}"}
+        assert prov["models"] == {"claude-sonnet-5": {"name": "claude-sonnet-5"}}
+        assert "provider" not in cfg
 
-    def test_ensure_ollama_sets_baseurl(self, launcher, tmp_path, monkeypatch):
-        p = tmp_path / "opencode.json"
-        monkeypatch.setattr(launcher, "OPENCODE_CONFIG_PATH", p)
-        launcher._ensure_oc_ollama("llama3:8b", "http://localhost:11434")
-        cfg = json.loads(p.read_text())
-        assert cfg["provider"]["ollama"]["options"]["baseURL"] == "http://localhost:11434/v1"
+    def test_ensure_provider_without_api_key(self, launcher):
+        cfg = {}
+        launcher._ensure_oc_provider(cfg, "ollama", "llama3:8b", "Ollama", "http://localhost:11434/v1")
+        assert cfg["providers"]["ollama"]["settings"] == {"baseURL": "http://localhost:11434/v1"}
 
-    def test_ensure_openrouter_sets_apikey(self, launcher, tmp_path, monkeypatch):
-        p = tmp_path / "opencode.json"
-        monkeypatch.setattr(launcher, "OPENCODE_CONFIG_PATH", p)
-        launcher._ensure_oc_openrouter("anthropic/claude-3-5-sonnet", "or-key-123")
-        cfg = json.loads(p.read_text())
-        assert cfg["provider"]["openrouter"]["options"]["apiKey"] == "or-key-123"
+    def test_ensure_provider_migrates_legacy_entry(self, launcher):
+        cfg = {
+            "provider": {
+                "ica": {"npm": "@ai-sdk/openai-compatible", "options": {"apiKey": "secret"}, "models": {"old-model": {"name": "Old"}}},
+                "llamacpp": {"npm": "@ai-sdk/openai-compatible"},
+            }
+        }
+        launcher._ensure_oc_provider(cfg, "ica", "new-model", "ICA", launcher.ICA_API_BASE, "{env:ICA_OPENCODE_API_KEY}")
+        assert cfg["provider"] == {"llamacpp": {"npm": "@ai-sdk/openai-compatible"}}
+        assert cfg["providers"]["ica"]["models"] == {"old-model": {"name": "Old"}, "new-model": {"name": "new-model"}}
+        assert "secret" not in json.dumps(cfg)
 
-    def test_ensure_vllm_sets_baseurl(self, launcher, tmp_path, monkeypatch):
-        p = tmp_path / "opencode.json"
-        monkeypatch.setattr(launcher, "OPENCODE_CONFIG_PATH", p)
-        launcher._ensure_oc_vllm("local-model", "https://vllm.example.com")
-        cfg = json.loads(p.read_text())
-        assert cfg["provider"]["vllm"]["options"]["baseURL"] == "https://vllm.example.com/v1"
+    def test_ensure_provider_removes_empty_legacy_block(self, launcher):
+        cfg = {"provider": {"ica": {"models": {}}}}
+        launcher._ensure_oc_provider(cfg, "ica", "m", "ICA", launcher.ICA_API_BASE)
+        assert "provider" not in cfg
 
-    def test_ensure_vllm_exits_without_url(self, launcher, tmp_path, monkeypatch):
-        p = tmp_path / "opencode.json"
-        monkeypatch.setattr(launcher, "OPENCODE_CONFIG_PATH", p)
+    def test_ensure_provider_preserves_existing_v2_fields(self, launcher):
+        cfg = {"providers": {"ica": {"name": "Custom", "settings": {"headers": {"X-A": "1"}}, "models": {"m": {"name": "Mine"}}}}}
+        launcher._ensure_oc_provider(cfg, "ica", "m", "ICA", launcher.ICA_API_BASE)
+        prov = cfg["providers"]["ica"]
+        assert prov["name"] == "Custom"
+        assert prov["settings"]["headers"] == {"X-A": "1"}
+        assert prov["models"]["m"] == {"name": "Mine"}
+
+    def test_set_model(self, launcher):
+        cfg = {}
+        launcher._set_oc_model(cfg, "litellm", "anthropic/claude-sonnet-4-5")
+        assert cfg["model"] == "litellm/anthropic/claude-sonnet-4-5"
+
+    def _spec(self, launcher, provider, **overrides):
+        kwargs = {
+            "litellm_url": "https://litellm.example.com/",
+            "litellm_key": "litellm",
+            "openrouter_key": "or-key",
+            "ollama_url": "http://localhost:11434",
+            "vllm_url": "https://vllm.example.com",
+            "ica_key": "ica-key",
+        }
+        kwargs.update(overrides)
+        return launcher._oc_provider_spec(provider, **kwargs)
+
+    def test_spec_litellm_uses_env_reference_when_set(self, launcher, monkeypatch):
+        monkeypatch.setenv("LITELLM_MASTER_KEY", "sk-real")
+        assert self._spec(launcher, "litellm") == ("LiteLLM", "https://litellm.example.com/v1", "{env:LITELLM_MASTER_KEY}")
+
+    def test_spec_litellm_falls_back_to_default_key(self, launcher, monkeypatch):
+        monkeypatch.delenv("LITELLM_MASTER_KEY", raising=False)
+        assert self._spec(launcher, "litellm") == ("LiteLLM", "https://litellm.example.com/v1", "litellm")
+
+    def test_spec_ollama(self, launcher):
+        assert self._spec(launcher, "ollama") == ("Ollama", "http://localhost:11434/v1", None)
+
+    def test_spec_openrouter(self, launcher):
+        assert self._spec(launcher, "openrouter") == ("OpenRouter", launcher.OPENROUTER_API_BASE, "{env:OPENROUTER_API_KEY}")
+        assert self._spec(launcher, "openrouter", openrouter_key="")[2] is None
+
+    def test_spec_vllm(self, launcher):
+        assert self._spec(launcher, "vllm") == ("vLLM", "https://vllm.example.com/v1", "dummy")
+
+    def test_spec_vllm_exits_without_url(self, launcher):
         with pytest.raises(SystemExit):
-            launcher._ensure_oc_vllm("local-model", "")
+            self._spec(launcher, "vllm", vllm_url="")
 
-    def test_ensure_ica_sets_apikey(self, launcher, tmp_path, monkeypatch):
-        p = tmp_path / "opencode.json"
-        monkeypatch.setattr(launcher, "OPENCODE_CONFIG_PATH", p)
-        launcher._ensure_oc_ica("ibm/granite-13b", "ica-key-456")
-        cfg = json.loads(p.read_text())
-        assert cfg["provider"]["ica"]["options"]["apiKey"] == "ica-key-456"
+    def test_spec_ica(self, launcher):
+        assert self._spec(launcher, "ica") == ("ICA", "https://api.servicesessentials.ibm.com/v1", "{env:ICA_OPENCODE_API_KEY}")
+        assert self._spec(launcher, "ica", ica_key="")[2] is None
+
+    def test_spec_unknown_provider(self, launcher):
+        assert self._spec(launcher, "nvidia") is None
 
 
 # ── launch (dry-run) ──────────────────────────────────────────────────────────
@@ -561,9 +604,34 @@ class TestLaunch:
         kwargs["dry_run"] = False
         mock_result = MagicMock()
         mock_result.returncode = 0
-        with patch("subprocess.run", return_value=mock_result), pytest.raises(SystemExit) as exc:
+        with patch("subprocess.run", return_value=mock_result) as mock_run, pytest.raises(SystemExit) as exc:
             launcher.launch("litellm", "gpt-4o", **kwargs)
         assert exc.value.code == 0
+        assert [c.args[0] for c in mock_run.call_args_list] == [["opencode", "reload"], ["opencode"]]
+
+    def test_live_run_forwards_extra_args(self, launcher, tmp_path, monkeypatch):
+        kwargs = self._base_kwargs(launcher, tmp_path, monkeypatch)
+        kwargs["dry_run"] = False
+        kwargs["extra_args"] = ["--continue"]
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run, pytest.raises(SystemExit):
+            launcher.launch("litellm", "gpt-4o", **kwargs)
+        assert mock_run.call_args_list[-1].args[0] == ["opencode", "--continue"]
+
+    def test_writes_default_model_and_provider(self, launcher, tmp_path, monkeypatch):
+        kwargs = self._base_kwargs(launcher, tmp_path, monkeypatch)
+        kwargs["ica_key"] = "ica-secret"
+        launcher.launch("ica", "claude-sonnet-5", **kwargs)
+        raw = (tmp_path / "opencode.json").read_text()
+        cfg = json.loads(raw)
+        assert cfg["model"] == "ica/claude-sonnet-5"
+        assert cfg["providers"]["ica"]["settings"]["apiKey"] == "{env:ICA_OPENCODE_API_KEY}"
+        assert "ica-secret" not in raw
+
+    def test_passthrough_provider_only_sets_model(self, launcher, tmp_path, monkeypatch):
+        kwargs = self._base_kwargs(launcher, tmp_path, monkeypatch)
+        launcher.launch("nvidia", "meta/llama-3.1-70b-instruct", **kwargs)
+        cfg = json.loads((tmp_path / "opencode.json").read_text())
+        assert cfg == {"model": "nvidia/meta/llama-3.1-70b-instruct"}
 
 
 # ── parse_args ────────────────────────────────────────────────────────────────

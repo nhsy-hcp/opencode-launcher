@@ -23,7 +23,7 @@ task lint          # ruff check + ruff format --check
 task test          # pytest (no coverage)
 task test:coverage # pytest with coverage — fails if < 80%
 task test:ci       # run CI workflow locally via act (requires act + Docker)
-task test:ica      # live ICA smoke test: /models + /chat/completions (requires ICA_API_KEY)
+task test:ica      # live ICA smoke test: /models + /chat/completions (requires ICA_OPENCODE_API_KEY)
 task clean         # remove .pytest_cache, .coverage, .ruff_cache, .tmp
 ```
 

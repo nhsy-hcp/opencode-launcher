@@ -27,7 +27,7 @@ Environment variables:
   OLLAMA_HOST          Ollama base URL (default: http://localhost:11434)
   NVIDIA_API_KEY       NVIDIA NIM API key (required if nvidia provider enabled)
   OPENROUTER_API_KEY   OpenRouter API key (required if openrouter provider enabled)
-  ICA_API_KEY          ICA API key (required if ica provider enabled)
+  ICA_OPENCODE_API_KEY ICA API key (required if ica provider enabled)
 """
 
 import argparse
@@ -60,7 +60,7 @@ PROVIDERS = {
     "nvidia": False,  # NVIDIA NIM     —  requires NVIDIA_API_KEY env var
     "openrouter": False,  # OpenRouter     —  requires OPENROUTER_API_KEY env var
     "vllm": False,  # Remote vLLM    —  requires VLLM_URL env var or terraform directory
-    "ica": True,  # ICA            —  requires ICA_API_KEY env var
+    "ica": True,  # ICA            —  requires ICA_OPENCODE_API_KEY env var
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -82,6 +82,7 @@ OPENROUTER_MODELS_URL = f"{OPENROUTER_API_BASE}/models"
 ICA_API_BASE = "https://api.servicesessentials.ibm.com/v1"
 ICA_MODELS_URL = f"{ICA_API_BASE}/models"
 
+OPENCODE_PACKAGE = "aisdk:@ai-sdk/openai-compatible"
 OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
 LAUNCHER_DIR = Path.home() / ".config" / "opencode-launcher"
 HISTORY_FILE = LAUNCHER_DIR / "history.json"
@@ -709,94 +710,52 @@ def _write_oc_config(config: dict) -> None:
     _atomic_write(OPENCODE_CONFIG_PATH, json.dumps(config, indent=2) + "\n")
 
 
-def _ensure_oc_litellm(model_id: str, litellm_url: str, api_key: str) -> None:
-    config = _read_oc_config()
-    providers = config.setdefault("provider", {})
-    prov = providers.setdefault(
-        "litellm",
-        {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "LiteLLM",
-            "options": {"baseURL": "", "apiKey": ""},
-            "models": {},
-        },
-    )
-    opts = prov.setdefault("options", {})
-    opts["baseURL"] = litellm_url.rstrip("/") + "/v1"
-    opts["apiKey"] = api_key
-    prov.setdefault("models", {})[model_id] = {"name": model_id}
-    _write_oc_config(config)
+def _oc_provider_spec(
+    provider: str,
+    litellm_url: str,
+    litellm_key: str,
+    openrouter_key: str,
+    ollama_url: str,
+    vllm_url: str,
+    ica_key: str,
+) -> tuple[str, str, str | None] | None:
+    if provider == "litellm":
+        api_key = "{env:LITELLM_MASTER_KEY}" if os.getenv("LITELLM_MASTER_KEY") else litellm_key
+        return "LiteLLM", litellm_url.rstrip("/") + "/v1", api_key
+    if provider == "ollama":
+        return "Ollama", ollama_url.rstrip("/") + "/v1", None
+    if provider == "openrouter":
+        return "OpenRouter", OPENROUTER_API_BASE, "{env:OPENROUTER_API_KEY}" if openrouter_key else None
+    if provider == "vllm":
+        if not vllm_url:
+            err("VLLM URL is not set. Run from tf dir or set VLLM_URL.")
+            sys.exit(1)
+        return "vLLM", vllm_url.rstrip("/") + "/v1", "dummy"
+    if provider == "ica":
+        return "ICA", ICA_API_BASE, "{env:ICA_OPENCODE_API_KEY}" if ica_key else None
+    return None
 
 
-def _ensure_oc_ollama(model_id: str, ollama_url: str) -> None:
-    config = _read_oc_config()
-    base_url = ollama_url.rstrip("/") + "/v1"
-    prov = config.setdefault("provider", {}).setdefault(
-        "ollama",
-        {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "Ollama",
-            "options": {"baseURL": base_url},
-            "models": {},
-        },
-    )
-    prov.setdefault("options", {})["baseURL"] = base_url
-    prov.setdefault("models", {}).setdefault(model_id, {"name": model_id})
-    _write_oc_config(config)
+def _ensure_oc_provider(config: dict, provider: str, model_id: str, name: str, base_url: str, api_key: str | None = None) -> None:
+    legacy = config.get("provider")
+    old = legacy.pop(provider, None) if isinstance(legacy, dict) else None
+    if isinstance(legacy, dict) and not legacy:
+        del config["provider"]
+    prov = config.setdefault("providers", {}).setdefault(provider, {})
+    prov.setdefault("name", name)
+    prov["package"] = OPENCODE_PACKAGE
+    settings = prov.setdefault("settings", {})
+    settings["baseURL"] = base_url
+    if api_key is not None:
+        settings["apiKey"] = api_key
+    models = prov.setdefault("models", {})
+    for mid, info in ((old or {}).get("models") or {}).items():
+        models.setdefault(mid, {"name": (info or {}).get("name", mid)})
+    models.setdefault(model_id, {"name": model_id})
 
 
-def _ensure_oc_openrouter(model_id: str, api_key: str) -> None:
-    config = _read_oc_config()
-    prov = config.setdefault("provider", {}).setdefault(
-        "openrouter",
-        {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "OpenRouter",
-            "options": {"baseURL": OPENROUTER_API_BASE, "apiKey": ""},
-            "models": {},
-        },
-    )
-    prov.setdefault("options", {})["apiKey"] = api_key
-    prov.setdefault("models", {})[model_id] = {"name": model_id}
-    _write_oc_config(config)
-
-
-def _ensure_oc_vllm(model_id: str, vllm_url: str) -> None:
-    config = _read_oc_config()
-    if not vllm_url:
-        err("VLLM URL is not set. Run from tf dir or set VLLM_URL.")
-        sys.exit(1)
-    base_url = vllm_url.rstrip("/") + "/v1"
-    prov = config.setdefault("provider", {}).setdefault(
-        "vllm",
-        {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "vLLM",
-            "options": {"baseURL": base_url, "apiKey": "dummy"},
-            "models": {},
-        },
-    )
-    prov.setdefault("options", {})["baseURL"] = base_url
-    prov.setdefault("options", {})["apiKey"] = "dummy"
-    prov.setdefault("models", {})[model_id] = {"name": model_id}
-    _write_oc_config(config)
-
-
-def _ensure_oc_ica(model_id: str, api_key: str) -> None:
-    config = _read_oc_config()
-    prov = config.setdefault("provider", {}).setdefault(
-        "ica",
-        {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "ICA",
-            "options": {"baseURL": ICA_API_BASE, "apiKey": ""},
-            "models": {},
-        },
-    )
-    prov.setdefault("options", {})["baseURL"] = ICA_API_BASE
-    prov.setdefault("options", {})["apiKey"] = api_key
-    prov.setdefault("models", {})[model_id] = {"name": model_id}
-    _write_oc_config(config)
+def _set_oc_model(config: dict, provider: str, model_id: str) -> None:
+    config["model"] = f"{provider}/{model_id}"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -820,25 +779,14 @@ def launch(
         err(f"Unsafe model ID: {model_id}")
         sys.exit(1)
 
-    if provider == "litellm":
-        _ensure_oc_litellm(model_id, litellm_url, litellm_key)
-        model_flag = f"litellm/{model_id}"
-    elif provider == "ollama":
-        _ensure_oc_ollama(model_id, ollama_url)
-        model_flag = f"ollama/{model_id}"
-    elif provider == "openrouter":
-        _ensure_oc_openrouter(model_id, openrouter_key)
-        model_flag = f"openrouter/{model_id}"
-    elif provider == "vllm":
-        _ensure_oc_vllm(model_id, vllm_url)
-        model_flag = f"vllm/{model_id}"
-    elif provider == "ica":
-        _ensure_oc_ica(model_id, ica_key)
-        model_flag = f"ica/{model_id}"
-    else:
-        model_flag = f"{provider}/{model_id}"
+    config = _read_oc_config()
+    spec = _oc_provider_spec(provider, litellm_url, litellm_key, openrouter_key, ollama_url, vllm_url, ica_key)
+    if spec:
+        _ensure_oc_provider(config, provider, model_id, *spec)
+    _set_oc_model(config, provider, model_id)
+    _write_oc_config(config)
 
-    cmd = ["opencode", "--model", model_flag, *extra_args]
+    cmd = ["opencode", *extra_args]
 
     extra_info = ""
     if provider == "litellm":
@@ -865,6 +813,7 @@ def launch(
         return
 
     try:
+        subprocess.run(["opencode", "reload"], capture_output=True)
         result = subprocess.run(cmd)
         sys.exit(result.returncode)
     except FileNotFoundError:
@@ -944,7 +893,7 @@ def main() -> None:
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
     nvidia_key = os.getenv("NVIDIA_API_KEY", "")
     ollama_url = os.getenv("OLLAMA_HOST", DEFAULT_OLLAMA_URL)
-    ica_key = os.getenv("ICA_API_KEY", "")
+    ica_key = os.getenv("ICA_OPENCODE_API_KEY", "")
     timeout = args.timeout or REQUEST_TIMEOUT
     use_cache = not args.no_cache
 
@@ -980,7 +929,7 @@ def main() -> None:
             tasks["openrouter"] = lambda: fetch_openrouter_models(openrouter_key, use_cache, timeout, shared_cache)
     if PROVIDERS.get("ica"):
         if not ica_key:
-            warn("ICA_API_KEY not set — skipping ICA.")
+            warn("ICA_OPENCODE_API_KEY not set — skipping ICA.")
         else:
             tasks["ica"] = lambda: fetch_ica_models(ica_key, use_cache, timeout, shared_cache)
 
