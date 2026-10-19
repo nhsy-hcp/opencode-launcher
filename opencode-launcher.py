@@ -13,9 +13,9 @@ opencode-launcher.py
 Interactive TUI to pick a model and launch opencode.
 
 Usage:
-  ./opencode-launcher.py                             # default: LiteLLM proxy
+  ./opencode-launcher.py                             # interactive picker (only ICA enabled by default)
   ./opencode-launcher.py --litellm-url URL           # override LiteLLM URL
-  ./opencode-launcher.py --model litellm/my-model        # skip picker, launch directly
+  ./opencode-launcher.py --model ica/my-model        # skip picker, launch directly
   ./opencode-launcher.py --dry-run                   # print command, don't execute
   ./opencode-launcher.py --no-cache                  # bypass cache, fetch fresh models
   ./opencode-launcher.py --clear-history             # wipe history/cache and exit
@@ -55,7 +55,7 @@ from rich.table import Table
 # Set True/False to enable/disable each source. Edit this dict to toggle.
 # ──────────────────────────────────────────────────────────────────────────────
 PROVIDERS = {
-    "litellm": True,  # LiteLLM proxy  —  see LITELLM_URL below
+    "litellm": False,  # LiteLLM proxy  —  see LITELLM_URL below
     "ollama": False,  # Local Ollama   —  requires OLLAMA_HOST or default localhost:11434
     "nvidia": False,  # NVIDIA NIM     —  requires NVIDIA_API_KEY env var
     "openrouter": False,  # OpenRouter     —  requires OPENROUTER_API_KEY env var
@@ -84,6 +84,7 @@ ICA_MODELS_URL = f"{ICA_API_BASE}/models"
 
 OPENCODE_PACKAGE = "aisdk:@ai-sdk/openai-compatible"
 OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
+OPENCODE_RELOAD_TIMEOUT = 15
 LAUNCHER_DIR = Path.home() / ".config" / "opencode-launcher"
 HISTORY_FILE = LAUNCHER_DIR / "history.json"
 CACHE_FILE = LAUNCHER_DIR / "cache.json"
@@ -698,12 +699,17 @@ def pick_openrouter_model(models: list[dict]) -> str | None:
 
 
 def _read_oc_config() -> dict:
+    if not OPENCODE_CONFIG_PATH.exists():
+        return {}
     try:
-        if OPENCODE_CONFIG_PATH.exists():
-            return json.loads(OPENCODE_CONFIG_PATH.read_text())
-    except (json.JSONDecodeError, OSError):
-        pass
-    return {}
+        config = json.loads(OPENCODE_CONFIG_PATH.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        err(f"Cannot parse {OPENCODE_CONFIG_PATH} ({e}). Fix it manually; refusing to overwrite.")
+        sys.exit(1)
+    if not isinstance(config, dict):
+        err(f"{OPENCODE_CONFIG_PATH} is not a JSON object. Fix it manually; refusing to overwrite.")
+        sys.exit(1)
+    return config
 
 
 def _write_oc_config(config: dict) -> None:
@@ -718,9 +724,10 @@ def _oc_provider_spec(
     ollama_url: str,
     vllm_url: str,
     ica_key: str,
+    nvidia_key: str,
 ) -> tuple[str, str, str | None] | None:
     if provider == "litellm":
-        api_key = "{env:LITELLM_MASTER_KEY}" if os.getenv("LITELLM_MASTER_KEY") else litellm_key
+        api_key = "{env:LITELLM_MASTER_KEY}" if "LITELLM_MASTER_KEY" in os.environ else litellm_key
         return "LiteLLM", litellm_url.rstrip("/") + "/v1", api_key
     if provider == "ollama":
         return "Ollama", ollama_url.rstrip("/") + "/v1", None
@@ -733,25 +740,23 @@ def _oc_provider_spec(
         return "vLLM", vllm_url.rstrip("/") + "/v1", "dummy"
     if provider == "ica":
         return "ICA", ICA_API_BASE, "{env:ICA_OPENCODE_API_KEY}" if ica_key else None
+    if provider == "nvidia":
+        return "NVIDIA", NVIDIA_API_BASE, "{env:NVIDIA_API_KEY}" if nvidia_key else None
     return None
 
 
 def _ensure_oc_provider(config: dict, provider: str, model_id: str, name: str, base_url: str, api_key: str | None = None) -> None:
-    legacy = config.get("provider")
-    old = legacy.pop(provider, None) if isinstance(legacy, dict) else None
-    if isinstance(legacy, dict) and not legacy:
-        del config["provider"]
-    prov = config.setdefault("providers", {}).setdefault(provider, {})
+    providers = config.setdefault("providers", {})
+    prov = providers.setdefault(provider, {}) if isinstance(providers, dict) else None
+    if not isinstance(prov, dict) or not all(isinstance(prov.setdefault(key, {}), dict) for key in ("settings", "models")):
+        err(f"'providers.{provider}' in {OPENCODE_CONFIG_PATH} is malformed. Fix it manually; refusing to overwrite.")
+        sys.exit(1)
     prov.setdefault("name", name)
     prov["package"] = OPENCODE_PACKAGE
-    settings = prov.setdefault("settings", {})
-    settings["baseURL"] = base_url
+    prov["settings"]["baseURL"] = base_url
     if api_key is not None:
-        settings["apiKey"] = api_key
-    models = prov.setdefault("models", {})
-    for mid, info in ((old or {}).get("models") or {}).items():
-        models.setdefault(mid, {"name": (info or {}).get("name", mid)})
-    models.setdefault(model_id, {"name": model_id})
+        prov["settings"]["apiKey"] = api_key
+    prov["models"].setdefault(model_id, {"name": model_id})
 
 
 def _set_oc_model(config: dict, provider: str, model_id: str) -> None:
@@ -772,6 +777,7 @@ def launch(
     ollama_url: str,
     vllm_url: str,
     ica_key: str,
+    nvidia_key: str,
     dry_run: bool,
     extra_args: list[str],
 ) -> None:
@@ -780,11 +786,10 @@ def launch(
         sys.exit(1)
 
     config = _read_oc_config()
-    spec = _oc_provider_spec(provider, litellm_url, litellm_key, openrouter_key, ollama_url, vllm_url, ica_key)
+    spec = _oc_provider_spec(provider, litellm_url, litellm_key, openrouter_key, ollama_url, vllm_url, ica_key, nvidia_key)
     if spec:
         _ensure_oc_provider(config, provider, model_id, *spec)
     _set_oc_model(config, provider, model_id)
-    _write_oc_config(config)
 
     cmd = ["opencode", *extra_args]
 
@@ -809,11 +814,22 @@ def launch(
     record_selection(provider, model_id)
 
     if dry_run:
-        warn("[dim]Dry-run — not executing.[/dim]")
+        warn("[dim]Dry-run — not executing; opencode.json not modified.[/dim]")
         return
 
+    _write_oc_config(config)
+
     try:
-        subprocess.run(["opencode", "reload"], capture_output=True)
+        reload = subprocess.run(["opencode", "reload"], capture_output=True, text=True, timeout=OPENCODE_RELOAD_TIMEOUT)
+        if reload.returncode != 0:
+            warn(f"'opencode reload' failed ({reload.returncode}): {(reload.stderr or reload.stdout).strip()} — try 'opencode service restart'.")
+    except subprocess.TimeoutExpired:
+        warn(f"'opencode reload' timed out after {OPENCODE_RELOAD_TIMEOUT}s — try 'opencode service restart'.")
+    except FileNotFoundError:
+        err("'opencode' not found in PATH. Install: https://opencode.ai/docs/")
+        sys.exit(1)
+
+    try:
         result = subprocess.run(cmd)
         sys.exit(result.returncode)
     except FileNotFoundError:
@@ -907,7 +923,7 @@ def main() -> None:
             err(f"Unknown provider '{provider}'. Valid: {', '.join(PROVIDERS)}")
             sys.exit(1)
         extra = [a for a in args.opencode_args if a != "--"]
-        launch(provider, model_id, args.litellm_url, litellm_key, openrouter_key, ollama_url, args.vllm_url, ica_key, args.dry_run, extra)
+        launch(provider, model_id, args.litellm_url, litellm_key, openrouter_key, ollama_url, args.vllm_url, ica_key, nvidia_key, args.dry_run, extra)
         return
 
     # ── Fetch enabled providers (parallel) ───────────────────────────────────
@@ -1052,7 +1068,7 @@ def main() -> None:
         break
 
     extra = [a for a in args.opencode_args if a != "--"]
-    launch(provider, model_id, args.litellm_url, litellm_key, openrouter_key, ollama_url, args.vllm_url, ica_key, args.dry_run, extra)
+    launch(provider, model_id, args.litellm_url, litellm_key, openrouter_key, ollama_url, args.vllm_url, ica_key, nvidia_key, args.dry_run, extra)
 
 
 if __name__ == "__main__":

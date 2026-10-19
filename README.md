@@ -4,20 +4,22 @@
 
 Interactive TUI to pick a model and launch [opencode](https://opencode.ai).
 
+> **Requires opencode 2.x.** The launcher writes the opencode 2.x `providers` config format and relies on `opencode reload`; opencode 1.x is no longer supported.
+
 Fetches available models from enabled providers in parallel, lets you browse/filter them, writes the chosen provider and default `model` into `~/.config/opencode/opencode.json` (native opencode 2.0 `providers` format), and launches `opencode`.
 
 ## Prerequisites
 
 - Python ≥ 3.11
 - [`uv`](https://docs.astral.sh/uv/)
-- [`opencode`](https://opencode.ai/v2/docs/) ≥ 2.0 in `$PATH`
+- [`opencode`](https://opencode.ai/v2/docs/) 2.x in `$PATH` (1.x is not supported)
 
 ## Usage
 
 ```bash
 ./opencode-launcher.py                               # interactive picker
-./opencode-launcher.py --model litellm/gpt-4o       # skip picker, launch directly
-./opencode-launcher.py --dry-run                     # print command, don't execute
+./opencode-launcher.py --model ica/my-model          # skip picker, launch directly
+./opencode-launcher.py --dry-run                     # print command, don't execute or modify opencode.json
 ./opencode-launcher.py --no-cache                    # bypass cache, fetch fresh models
 ./opencode-launcher.py --clear-history               # wipe history & cache, then exit
 ./opencode-launcher.py --clear-cache                 # wipe model cache, then exit
@@ -46,17 +48,17 @@ Extra arguments after `--` are forwarded to `opencode`:
 | `ICA_OPENCODE_API_KEY` | — | Required when ICA provider is enabled |
 | `REQUEST_TIMEOUT` | `10` | HTTP request timeout (seconds) |
 
-API keys are never written to `opencode.json`. The launcher writes `{env:VAR}` references (`ICA_OPENCODE_API_KEY`, `OPENROUTER_API_KEY`, `LITELLM_MASTER_KEY`), which opencode resolves at runtime, so the variables must be exported in the environment of the opencode background service. If the service was started without them, run `opencode service restart` from a shell that has them set.
+API keys are never written to `opencode.json`. The launcher writes `{env:VAR}` references (`ICA_OPENCODE_API_KEY`, `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `LITELLM_MASTER_KEY`), which opencode resolves at runtime, so the variables must be exported in the environment of the opencode background service. If the service was started without them, run `opencode service restart` from a shell that has them set.
 
-The selected model becomes the opencode default (`model` in `opencode.json`). Launcher-managed entries in a legacy v1 `provider` block are migrated to `providers`; other entries are left untouched.
+The selected model becomes the opencode default (`model` in `opencode.json`), since opencode 2.x has no `--model` flag. After writing the config the launcher runs `opencode reload` (15s timeout); if that fails it warns and launches anyway. If `opencode.json` cannot be parsed (e.g. it contains comments) or its `providers` entries are malformed, the launcher exits without overwriting it.
 
 ## Providers
 
-Toggle providers by editing the `PROVIDERS` dict at the top of the script:
+Only ICA is enabled by default. Toggle providers by editing the `PROVIDERS` dict at the top of the script:
 
 ```python
 PROVIDERS = {
-    "litellm": True,
+    "litellm": False,
     "ollama": False,
     "nvidia": False,
     "openrouter": False,
@@ -64,6 +66,8 @@ PROVIDERS = {
     "ica": True,
 }
 ```
+
+`--model PROVIDER/MODEL` works for any known provider, even if it is disabled in `PROVIDERS`.
 
 ## Development
 
